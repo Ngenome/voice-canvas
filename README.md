@@ -1,133 +1,107 @@
-# 🎙️ ElevenLabs Voice Canvas Studio
+# Voice Canvas
 
-An open-source, full-stack voice assistant studio powered by **ElevenLabs Conversational AI**, **React 19**, **Tailwind CSS**, **Hono**, and **SQLite**. Features real-time bidirectional WebSocket tool calling, interactive markdown/GFM table canvas, document context injection, and seamless session resumption.
+A voice assistant with a synchronized visual workspace. You talk to the agent in real time while it creates, edits, and organizes notes, markdown tables, and code snippets on screen.
 
-![Voice Canvas Studio](https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80)
+## How it works
 
----
+The frontend runs an ElevenLabs conversational voice agent over a signed WebSocket connection. During a call, the agent uses client tools to read and modify the visual canvas in real time without HTTP webhooks.
 
-## ✨ Features
-
-- 🎙️ **Ultra-Low Latency Spoken Voice AI**: Powered by `@elevenlabs/react` with real-time waveform and responsive visualizer orb.
-- 📋 **Bidirectional Interactive Canvas**:
-  - **Live Tool Calling**: The voice agent reads, writes, updates, and deletes notes/sections directly on screen over active WebSockets.
-  - **GFM Tables & Formatted Artifacts**: Native markdown table rendering (`| Col 1 | Col 2 |`), code blocks with copy buttons, collapsible `<details>`, and highlighted badges.
-  - **User In-Place Editing**: Double-click or click the edit icon on any canvas card to edit markdown directly in the browser with live Save/Cancel.
-- 🔁 **Lossless Session Resumption**:
-  - Reconnects to past sessions and injects verbatim prior conversation turns directly into the voice agent's context memory via `sendContextualUpdate`.
-  - Merges and saves coherent sessions without duplicate session fragmentation.
-- 📄 **1000+ Word Document Context Injection**:
-  - Paste large articles, resumes, or codebases directly into the voice assistant's active memory during calls.
-- 💾 **Local-First SQLite Persistence**:
-  - Stores all transcripts, durations, and canvas states in `voice_sessions.db` with WAL mode and local storage backups.
-- 🎨 **Minimalist Obsidian Dark Theme**:
-  - Linear/Raycast-inspired dark palette (`#09090b` zinc base), smooth transitions, custom scrollbars, and accessible controls.
-
----
-
-## 🛠️ Architecture & Client Tools
-
-```mermaid
-flowchart TD
-    User([User Voice / Text]) <--> VoiceChat[VoiceChat Studio]
-    VoiceChat <--> |Signed WebSocket Stream| ElevenLabs[ElevenLabs Conversational AI]
-    
-    subgraph ClientTools [Bidirectional Client Tools]
-        ElevenLabs --> |list_canvas_entries| T1[Discover Card IDs & Titles]
-        ElevenLabs --> |read_canvas| T2[Inspect Current Canvas State]
-        ElevenLabs --> |append_to_canvas| T3[Append Notes & GFM Tables]
-        ElevenLabs --> |update_canvas_entry| T4[In-Place Section Updates]
-        ElevenLabs --> |delete_canvas_entry| T5[Remove Canvas Cards]
-        ElevenLabs --> |write_to_canvas| T6[Overwrite Canvas Document]
-    end
-    
-    T1 & T2 & T3 & T4 & T5 & T6 --> Canvas[Interactive Canvas Panel]
-    Canvas --> SQLite[(SQLite voice_sessions.db)]
+```
+User (Voice / Text) <---> VoiceChat (React) <---> ElevenLabs Agent
+                               |
+                               v
+                     Client Tools (WebSocket)
+                     - list_canvas_entries
+                     - read_canvas
+                     - append_to_canvas
+                     - update_canvas_entry
+                     - delete_canvas_entry
+                     - write_to_canvas
+                               |
+                               v
+                     Canvas Panel + SQLite (voice_sessions.db)
 ```
 
----
+1. **Client tools over WebSocket.** The browser registers tools (`list_canvas_entries`, `read_canvas`, `append_to_canvas`, `update_canvas_entry`, `delete_canvas_entry`, `write_to_canvas`). When the agent calls a tool, the browser runs the handler locally and returns the result in the active session frame.
+2. **Interactive canvas.** The right panel parses markdown, GitHub Flavored Markdown tables, code blocks with copy buttons, and HTML callouts. Users can double-click or click the edit icon on any card to edit markdown directly in place.
+3. **Session resumption.** When you resume a past call, the app loads the prior transcript and canvas entries from SQLite and sends the transcript to the agent as background context on connect.
+4. **Document injection.** You can paste text or documents up to several thousand words into the chat box to send them as a user message or inject them silently into the agent memory.
+5. **Local storage.** Session history, duration, transcripts, and canvas states save to a local SQLite database (`voice_sessions.db`).
 
-## 🚀 Getting Started
+## Setup
 
-### 1. Prerequisites
+### Prerequisites
+
 - [Bun](https://bun.sh/) (v1.0+) or Node.js (v18+)
-- An [ElevenLabs](https://elevenlabs.io/) Account & API Key
+- An ElevenLabs account with an API key
 
-### 2. Clone and Install Dependencies
+### Installation
+
+1. Clone the repository and install dependencies:
+
 ```bash
-git clone https://github.com/your-username/elevenlabs-voice-canvas.git
-cd elevenlabs-voice-canvas
+git clone https://github.com/ngenome/voice-canvas.git
+cd voice-canvas
 bun install
 ```
 
-### 3. Configure Environment Variables
-Copy `.env.example` to `.env`:
+2. Create `.env` from the example file:
+
 ```bash
 cp .env.example .env
 ```
-Fill in your ElevenLabs credentials:
+
+3. Add your ElevenLabs credentials to `.env`:
+
 ```env
-ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
-ELEVENLABS_AGENT_ID=your_elevenlabs_agent_id_here
+ELEVENLABS_API_KEY=your_api_key_here
+ELEVENLABS_AGENT_ID=your_agent_id_here
 PORT=3002
 ```
 
-### 4. Create or Sync Agent Client Tools
-To automatically configure or sync your ElevenLabs agent with the required tool definitions and prompt guidelines:
+4. Configure your ElevenLabs agent with the required tool definitions:
+
 ```bash
 bun run update-agent
 ```
-Or create a fresh lean agent:
+
+To create a new agent from scratch instead, run:
+
 ```bash
 bun run create-agent
 ```
 
-### 5. Start Development Server
+5. Start the development server:
+
 ```bash
 bun run dev
 ```
-Open **http://localhost:5173** in your browser.
 
----
+Open `http://localhost:5173` in your browser.
 
-## 📁 Project Structure
+## Project structure
 
-```
-.
-├── server/
-│   ├── db.ts               # SQLite service (sessions, transcripts, canvas_json)
-│   ├── index.ts            # Hono API backend (signed URLs, canvas sync, CRUD)
-│   ├── createAgent.ts      # Automated ElevenLabs agent setup script
-│   └── updateAgent.ts      # Cloud agent tool sync script
-├── src/
-│   ├── components/
-│   │   ├── AvatarSpeaker.tsx  # Reactive orb visualizer
-│   │   ├── CanvasPanel.tsx    # GFM table & in-place markdown canvas
-│   │   ├── SessionHistory.tsx # History drawer with resume & search
-│   │   ├── SettingsModal.tsx  # API key & Agent ID configuration
-│   │   ├── VoiceChat.tsx      # Main workstation & ElevenLabs WebSocket client tools
-│   │   └── Waveform.tsx       # Spectrum audio visualizer
-│   ├── App.tsx             # Root layout & route hydration
-│   └── index.css           # Zinc-950 obsidian design tokens & styles
-├── .env.example
-├── .gitignore
-├── package.json
-└── vite.config.ts
-```
+- `server/db.ts` SQLite database service for sessions, transcripts, and canvas data.
+- `server/index.ts` Hono backend server for signed URLs, canvas persistence, and settings.
+- `server/updateAgent.ts` Syncs tool definitions and prompt rules to your ElevenLabs agent.
+- `server/createAgent.ts` Creates a new agent on ElevenLabs with canvas tools configured.
+- `src/components/VoiceChat.tsx` Main workstation layout, microphone stream, and client tool handlers.
+- `src/components/CanvasPanel.tsx` Canvas renderer with markdown tables, code syntax blocks, and in-place editing.
+- `src/components/AvatarSpeaker.tsx` Reactive audio visualizer orb.
+- `src/components/Waveform.tsx` Audio frequency bars.
+- `src/components/SessionHistory.tsx` Session history drawer with resume and search.
+- `src/components/SettingsModal.tsx` In-app API key and agent ID settings.
 
----
-
-## 📜 Available Scripts
+## Scripts
 
 | Command | Description |
 |---|---|
-| `bun run dev` | Starts frontend Vite dev server and Hono backend concurrently |
-| `bun run server` | Starts Hono backend server (`http://localhost:3002`) |
-| `bun run build` | Builds frontend for production into `dist/` |
-| `bun run update-agent` | Syncs bidirectional canvas tools to ElevenLabs agent |
-| `bun run create-agent` | Creates a brand new lean agent on ElevenLabs |
+| `bun run dev` | Starts Vite frontend and Hono backend concurrently |
+| `bun run server` | Starts only the Hono backend server |
+| `bun run build` | Builds the frontend for production into `dist/` |
+| `bun run update-agent` | Updates tool definitions on ElevenLabs |
+| `bun run create-agent` | Creates a new agent on ElevenLabs |
 
----
+## License
 
-## 📄 License
-MIT License. Free for personal and commercial use.
+MIT
