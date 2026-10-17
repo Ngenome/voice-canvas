@@ -45,3 +45,6 @@ bun.log
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Uploaded documents (original PDFs)
+uploads/

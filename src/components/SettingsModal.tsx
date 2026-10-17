@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { X, Settings2, Save, CheckCircle2, AlertCircle, Eye, EyeOff, Key } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { X, Eye, EyeOff } from "lucide-react";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,150 +11,106 @@ interface SettingsModalProps {
   onSave: () => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({
-  isOpen,
-  onClose,
-  agentId,
-  setAgentId,
-  apiKey,
-  setApiKey,
-  onSave,
-}) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, agentId, setAgentId, apiKey, setApiKey, onSave }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [successMsg, setSuccessMsg] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setStatus(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    setErrorMsg("");
-    setSuccessMsg("");
-
+    setStatus(null);
     try {
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent_id: agentId.trim(),
-          api_key: apiKey.trim(),
-        }),
+        body: JSON.stringify({ agent_id: agentId.trim(), api_key: apiKey.trim() }),
       });
-
-      if (!res.ok) {
-        throw new Error("Failed to save settings to server");
-      }
-
-      setSuccessMsg("Settings saved successfully.");
+      if (!res.ok) throw new Error("The server didn't accept the settings.");
+      setStatus({ ok: true, msg: "Saved" });
       onSave();
-      setTimeout(() => {
-        setSuccessMsg("");
-        onClose();
-      }, 1000);
+      setTimeout(onClose, 700);
     } catch (err: any) {
-      setErrorMsg(err.message || "Error saving settings");
+      setStatus({ ok: false, msg: err?.message || "Couldn't save settings." });
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-md rounded-3xl surface-card p-6 shadow-2xl border border-white/[0.08]">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
-          <div className="flex items-center gap-2.5 text-zinc-100 font-semibold text-sm">
-            <div className="w-7 h-7 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-300 border border-zinc-700">
-              <Settings2 className="w-4 h-4" />
-            </div>
-            <span>Agent & Studio Configuration</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
-          >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 fade-in" onClick={onClose} />
+      <form onSubmit={handleSave} className="relative w-full max-w-md panel rounded-2xl rise">
+        <header className="flex items-center justify-between px-6 pt-5 pb-2">
+          <h2 className="font-serif text-xl font-medium">Settings</h2>
+          <button type="button" onClick={onClose} className="btn btn-icon -mr-2" title="Close (Esc)">
             <X className="w-4 h-4" />
           </button>
-        </div>
+        </header>
 
-        {successMsg && (
-          <div className="mb-4 flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs">
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-        {errorMsg && (
-          <div className="mb-4 flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSave} className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
-              ElevenLabs Agent ID <span className="text-sky-400">*</span>
-            </label>
+        <div className="px-6 py-3 space-y-5">
+          <label className="block">
+            <span className="text-sm font-medium">ElevenLabs agent ID</span>
             <input
               type="text"
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
-              placeholder="e.g. agent_0123456789abcdef..."
+              placeholder="agent_..."
               required
-              className="w-full px-3.5 py-2.5 bg-zinc-900/90 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 font-mono transition"
+              className="field font-mono text-[0.85rem] mt-1.5"
             />
-            <p className="mt-1 text-[11px] text-zinc-500">
-              Your ElevenLabs Conversational AI Agent identifier.
-            </p>
-          </div>
+            <span className="block text-xs text-faint mt-1.5">Find it in the ElevenLabs dashboard under Agents.</span>
+          </label>
 
-          <div>
-            <label className="block text-[11px] font-semibold text-zinc-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-              <span>API Key <span className="text-zinc-500 font-normal font-sans">(Optional for public agents)</span></span>
-              <Key className="w-3.5 h-3.5 text-zinc-500" />
-            </label>
-            <div className="relative">
+          <label className="block">
+            <span className="text-sm font-medium">
+              API key <span className="text-faint font-normal">(optional for public agents)</span>
+            </span>
+            <div className="relative mt-1.5">
               <input
                 type={showApiKey ? "text" : "password"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="xi-api-key..."
-                className="w-full pl-3.5 pr-10 py-2.5 bg-zinc-900/90 border border-zinc-800 rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 font-mono transition"
+                placeholder="sk_..."
+                className="field font-mono text-[0.85rem] pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-fg transition-colors"
+                title={showApiKey ? "Hide key" : "Show key"}
               >
                 {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="mt-1 text-[11px] text-zinc-500">
-              Used on the backend server to mint signed WebSocket tokens and run client tools.
-            </p>
-          </div>
+            <span className="block text-xs text-faint mt-1.5">Stays on your local server. Used to start secure voice sessions.</span>
+          </label>
+        </div>
 
-          <div className="flex items-center justify-end gap-2 pt-4 border-t border-zinc-800">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition cursor-pointer"
-            >
+        <footer className="flex items-center justify-between gap-3 px-6 py-4 mt-2 border-t border-line">
+          <span className={`text-sm ${status ? (status.ok ? "text-live" : "text-danger") : ""}`}>{status?.msg}</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="btn">
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 font-semibold text-xs transition disabled:opacity-50 cursor-pointer shadow-sm"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{isSaving ? "Saving..." : "Save Settings"}</span>
+            <button type="submit" disabled={isSaving} className="btn btn-primary">
+              {isSaving ? "Saving..." : "Save"}
             </button>
           </div>
-        </form>
-      </div>
+        </footer>
+      </form>
     </div>
   );
 };

@@ -14,6 +14,12 @@ function ensureCanvasColumn() {
   if (!columns.some((column) => column.name === "canvas_json")) {
     db.exec("ALTER TABLE sessions ADD COLUMN canvas_json TEXT;");
   }
+  if (!columns.some((column) => column.name === "document_json")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN document_json TEXT;");
+  }
+  if (!columns.some((column) => column.name === "summary_json")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN summary_json TEXT;");
+  }
 }
 
 // Initialize Tables
@@ -44,6 +50,7 @@ db.exec(`
     value TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
 `);
 
 ensureCanvasColumn();
@@ -56,6 +63,9 @@ export interface Session {
   duration_seconds: number;
   analysis_json?: string;
   canvas_json?: string;
+  document_json?: string;
+  document_title?: string;
+  document_count?: number;
   created_at: string;
   updated_at: string;
   message_count?: number;
@@ -84,8 +94,17 @@ export interface FullSession extends Session {
 export const dbService = {
   getAllSessions(): Session[] {
     const query = db.prepare(`
-      SELECT 
-        s.*, 
+      SELECT
+        s.id, s.title, s.agent_id, s.status, s.duration_seconds, s.canvas_json,
+        s.created_at, s.updated_at,
+        COALESCE(json_extract(s.document_json, '$.title'), json_extract(s.document_json, '$.documents[0].title')) as document_title,
+        -- Documents on the shelf, counting all versions of one document once.
+        CASE
+          WHEN s.document_json IS NULL THEN 0
+          WHEN json_extract(s.document_json, '$.documents') IS NULL THEN 1
+          ELSE (SELECT COUNT(DISTINCT COALESCE(json_extract(d.value, '$.groupId'), json_extract(d.value, '$.id')))
+                  FROM json_each(s.document_json, '$.documents') d)
+        END as document_count,
         COUNT(t.id) as message_count
       FROM sessions s
       LEFT JOIN transcripts t ON s.id = t.session_id
@@ -122,6 +141,7 @@ export const dbService = {
     analysis_json?: string;
     canvas_entries?: CanvasEntry[];
     canvas_json?: string;
+    document_json?: string;
     transcripts?: { role: "user" | "agent" | "system"; message: string; timestamp?: string }[];
   }): FullSession {
     const {
@@ -133,6 +153,7 @@ export const dbService = {
       analysis_json = null,
       canvas_entries = [],
       canvas_json = null,
+      document_json = null,
       transcripts = [],
     } = sessionData;
 
@@ -144,18 +165,28 @@ export const dbService = {
     }
 
     const insertSession = db.prepare(`
-      INSERT INTO sessions (id, title, agent_id, status, duration_seconds, analysis_json, canvas_json, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO sessions (id, title, agent_id, status, duration_seconds, analysis_json, canvas_json, document_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         status = excluded.status,
         duration_seconds = excluded.duration_seconds,
         analysis_json = COALESCE(excluded.analysis_json, sessions.analysis_json),
         canvas_json = COALESCE(excluded.canvas_json, sessions.canvas_json),
+        document_json = COALESCE(excluded.document_json, sessions.document_json),
         updated_at = CURRENT_TIMESTAMP
     `);
 
-    insertSession.run(id, title, agent_id, status, duration_seconds, analysis_json, finalCanvasJson);
+    insertSession.run(
+      id,
+      title,
+      agent_id,
+      status,
+      duration_seconds,
+      analysis_json,
+      finalCanvasJson,
+      typeof document_json === "string" && document_json.trim() ? document_json : null,
+    );
 
     // Delete existing transcripts for clean rewrite
     db.prepare(`DELETE FROM transcripts WHERE session_id = ?`).run(id);
@@ -196,6 +227,27 @@ export const dbService = {
         updated_at = CURRENT_TIMESTAMP
     `);
     stmt.run(id, canvasJson);
+  },
+
+  updateSessionDocument(id: string, documentJson: string, title?: string): void {
+    const stmt = db.prepare(`
+      INSERT INTO sessions (id, title, status, document_json, updated_at)
+      VALUES (?, ?, 'active', ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(id) DO UPDATE SET
+        document_json = excluded.document_json,
+        title = CASE WHEN ? <> '' THEN ? ELSE sessions.title END,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+    stmt.run(id, title || "Reading session", documentJson, title || "", title || "");
+  },
+
+  /** Rolling summary of the older part of a long conversation: { text, covered }. */
+  updateSessionSummary(id: string, summaryJson: string): void {
+    db.prepare(`
+      INSERT INTO sessions (id, title, status, summary_json, updated_at)
+      VALUES (?, 'Conversation', 'active', ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(id) DO UPDATE SET summary_json = excluded.summary_json, updated_at = CURRENT_TIMESTAMP
+    `).run(id, summaryJson);
   },
 
   deleteSession(id: string): boolean {

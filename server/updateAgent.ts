@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { webTools, readingTools, timeTools, WEB_SEARCH_PROMPT, READING_PROMPT, TIME_PROMPT } from "./agentTools";
 
 function loadEnvFile(filePath: string) {
   if (!fs.existsSync(filePath)) return;
@@ -110,21 +111,9 @@ const canvasTools = [
         id: { type: "string", description: "ID of the card to delete." },
         targetTitle: {
           type: "string",
-          description: "Heading or keyword of the section to delete.",
+          description: "Exact heading of the note to delete (only if you don't have its ID).",
         },
       },
-    },
-  },
-  {
-    type: "client",
-    name: "write_to_canvas",
-    description: "Overwrite the entire canvas with brand new content.",
-    parameters: {
-      type: "object",
-      properties: {
-        markdown: { type: "string", description: "Markdown content for the canvas." },
-      },
-      required: ["markdown"],
     },
   },
 ];
@@ -136,30 +125,44 @@ You are an intelligent, concise, task-oriented Voice Assistant paired with an on
 You have direct real-time control over the user's visual Canvas via client tools:
 1. **list_canvas_entries**: Lightweight index of all card IDs and titles. Use this to discover available IDs before updating or deleting.
 2. **read_canvas**: Read full markdown content of all cards or a specific card by ID.
-3. **append_to_canvas**: Append new notes, markdown tables (| Header | Header |), code blocks, or checklists.
+3. **append_to_canvas**: Add a new note, markdown table (| Header | Header |), code block, or checklist. Existing notes are always kept.
 4. **update_canvas_entry**: Edit or update an existing section in-place when asked to change or refine a point (avoids duplicate cards).
-5. **delete_canvas_entry**: Remove a section from the canvas when requested.
+5. **delete_canvas_entry**: Remove one note, by its ID, only when the user asks.
+- Notes are the user's study record: never remove or rewrite notes they didn't ask you to change. To edit or delete, call list_canvas_entries first and use the note's ID.
 
 # Guidelines
 - When presenting structured data, comparisons, or schedules, use GFM Markdown tables.
 - When writing code, use triple backticks with the language identifier (e.g. \`\`\`typescript).
-- Keep spoken responses brief and natural while placing dense information on the Canvas.`;
+- Keep spoken responses brief and natural while placing dense information on the Canvas.
+
+${WEB_SEARCH_PROMPT}
+
+${READING_PROMPT}
+
+${TIME_PROMPT}`;
 
 function buildPayload() {
   return {
+    platform_settings: {
+      // Lets the app skip the greeting when a call continues an ongoing session.
+      overrides: {
+        conversation_config_override: { agent: { first_message: true, prompt: { llm: true } }, tts: { voice_id: true, speed: true } },
+      },
+    },
     conversation_config: {
       agent: {
         first_message: "Agent is running. Lets chat.",
         language: "en",
         prompt: {
           prompt,
-          llm: "claude-sonnet-4-5",
+          llm: "claude-sonnet-5-5",
+          reasoning_effort: "low", // a little thinking; keeps replies quick for voice
           temperature: 0.7,
-          tools: canvasTools,
+          tools: [...canvasTools, ...webTools, ...readingTools, ...timeTools],
         },
       },
       conversation: {
-        max_duration_seconds: 1200, // 20 minutes
+        max_duration_seconds: 7200, // 2 hours; the app reconnects seamlessly if a call still hits the limit
       },
     },
   };
@@ -186,7 +189,7 @@ async function updateAgent(agentId: string, payload: Record<string, unknown>) {
     throw new Error(`PATCH failed (${response.status}): ${bodyText}`);
   }
 
-  console.log(`✅ Agent ${agentId} updated with full bidirectional Canvas tools.`);
+  console.log(`✅ Agent ${agentId} updated with canvas, web search, and reading tools.`);
 }
 
 if (!apiKey) {

@@ -1,21 +1,5 @@
 import React, { useState } from "react";
-import {
-  Eraser,
-  Copy,
-  Check,
-  Sparkles,
-  FileCode,
-  Download,
-  Terminal,
-  FileText,
-  Clock,
-  Wand2,
-  Edit3,
-  Trash2,
-  Save,
-  X,
-  Table as TableIcon,
-} from "lucide-react";
+import { Copy, Check, Download, Edit3, Trash2, X, NotebookPen, Eraser } from "lucide-react";
 
 export interface CanvasEntry {
   id: string;
@@ -44,100 +28,63 @@ function decodeEntities(text: string): string {
 
 function parseInlineMarkdown(rawText: string): React.ReactNode[] {
   const text = decodeEntities(rawText);
-  const pattern = /(`[^`]+`)|\*\*([^*]+)\*\*|(\*[^*]+\*)|(==[^=]+==)|(\[[^\]]+\]\([^\)]+\))/g;
+  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(==[^=]+==)|(\[[^\]]+\]\([^)]+\))/g;
 
-  const segments = text.split(pattern);
-  return segments
+  return text
+    .split(pattern)
     .filter((segment) => segment !== undefined && segment !== "")
     .map((segment, index) => {
-      if (!segment) return null;
-
-      const match = segment.match(/^`([^`]+)`$/);
-      if (match) {
+      const code = segment.match(/^`([^`]+)`$/);
+      if (code) {
         return (
-          <code
-            key={`inline-${index}`}
-            className="bg-zinc-800/90 border border-zinc-700/60 rounded px-1.5 py-0.5 text-xs text-sky-300 font-mono"
-          >
-            {match[1]}
+          <code key={index} className="font-mono text-[0.85em] bg-sunken border border-line rounded px-1.5 py-0.5 text-accent">
+            {code[1]}
           </code>
         );
       }
-
       const bold = segment.match(/^\*\*([^*]+)\*\*$/);
-      if (bold) {
-        return (
-          <strong key={`bold-${index}`} className="text-zinc-100 font-semibold">
-            {bold[1]}
-          </strong>
-        );
-      }
-
+      if (bold) return <strong key={index} className="font-semibold">{bold[1]}</strong>;
       const italic = segment.match(/^\*([^*]+)\*$/);
-      if (italic) {
-        return (
-          <em key={`italic-${index}`} className="text-zinc-300 italic">
-            {italic[1]}
-          </em>
-        );
-      }
-
+      if (italic) return <em key={index}>{italic[1]}</em>;
       const highlight = segment.match(/^==([^=]+)==$/);
       if (highlight) {
         return (
-          <mark
-            key={`mark-${index}`}
-            className="bg-sky-500/20 text-sky-200 px-1 rounded border border-sky-500/30 font-medium"
-          >
+          <mark key={index} className="bg-mark text-fg px-1 rounded">
             {highlight[1]}
           </mark>
         );
       }
-
-      const link = segment.match(/^\[([^\]]+)\]\(([^\)]+)\)$/);
+      const link = segment.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       if (link) {
         return (
-          <a
-            key={`link-${index}`}
-            href={link[2]}
-            target="_blank"
-            rel="noreferrer"
-            className="text-sky-400 hover:text-sky-300 underline underline-offset-4 transition"
-          >
+          <a key={index} href={link[2]} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-4 decoration-1 hover:decoration-2">
             {link[1]}
           </a>
         );
       }
-
-      return <React.Fragment key={`text-${index}`}>{segment}</React.Fragment>;
+      return <React.Fragment key={index}>{segment}</React.Fragment>;
     });
 }
 
 function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <div className="my-3 rounded-xl border border-zinc-800 bg-[#0c0c10] overflow-hidden shadow-md">
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-zinc-900/90 border-b border-zinc-800 text-[11px] text-zinc-400">
-        <div className="flex items-center gap-1.5 font-mono">
-          <Terminal className="w-3.5 h-3.5 text-sky-400" />
-          <span>{lang || "code"}</span>
-        </div>
+    <div className="my-3 rounded-xl border border-line bg-sunken overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-line text-xs text-faint">
+        <span className="font-mono">{lang || "code"}</span>
         <button
-          onClick={handleCopy}
-          className="inline-flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-100 transition cursor-pointer"
+          onClick={() => {
+            navigator.clipboard.writeText(code);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1800);
+          }}
+          className="inline-flex items-center gap-1 hover:text-fg transition-colors"
         >
-          {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-          <span>{copied ? "Copied" : "Copy"}</span>
+          {copied ? <Check className="w-3 h-3 text-live" /> : <Copy className="w-3 h-3" />}
+          {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="p-3.5 text-xs text-zinc-200 font-mono overflow-x-auto leading-relaxed">
+      <pre className="p-3.5 text-[0.82rem] font-mono overflow-x-auto leading-relaxed">
         <code>{code}</code>
       </pre>
     </div>
@@ -146,26 +93,24 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
 
 function TableRenderer({ rows }: { rows: string[][] }) {
   if (rows.length === 0) return null;
-  const headerRow = rows[0];
-  const bodyRows = rows.slice(1);
-
+  const [head, ...body] = rows;
   return (
-    <div className="my-3 rounded-xl border border-zinc-800 bg-[#0e0e13] overflow-hidden shadow-sm overflow-x-auto">
-      <table className="w-full text-left border-collapse text-xs">
+    <div className="my-3 rounded-xl border border-line overflow-x-auto">
+      <table className="w-full text-left border-collapse text-[0.88rem]">
         <thead>
-          <tr className="bg-zinc-900/90 border-b border-zinc-800 text-zinc-200 font-semibold">
-            {headerRow.map((cell, idx) => (
-              <th key={`th-${idx}`} className="p-2.5 font-semibold text-sky-300">
+          <tr className="bg-sunken border-b border-line">
+            {head.map((cell, i) => (
+              <th key={i} className="px-3 py-2 font-semibold">
                 {parseInlineMarkdown(cell.trim())}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-800/60">
-          {bodyRows.map((row, rIdx) => (
-            <tr key={`tr-${rIdx}`} className="hover:bg-zinc-900/40 transition-colors">
-              {row.map((cell, cIdx) => (
-                <td key={`td-${rIdx}-${cIdx}`} className="p-2.5 text-zinc-300">
+        <tbody>
+          {body.map((row, r) => (
+            <tr key={r} className="border-b border-line last:border-0">
+              {row.map((cell, c) => (
+                <td key={c} className="px-3 py-2 text-muted align-top">
                   {parseInlineMarkdown(cell.trim())}
                 </td>
               ))}
@@ -177,197 +122,117 @@ function TableRenderer({ rows }: { rows: string[][] }) {
   );
 }
 
+const BLOCK_START = /^(#{1,6}\s+|```|\|.*\|$|<details|\s*[-*+]\s+|\s*\d+\.\s+|>\s?)/;
+
 function renderMarkdown(markdown: string): React.ReactNode[] {
   const lines = markdown.replace(/\r/g, "").split("\n");
   const blocks: React.ReactNode[] = [];
-
   let i = 0;
 
   while (i < lines.length) {
-    const rawLine = lines[i];
-    const line = rawLine.trim();
-
+    const line = lines[i].trim();
     if (!line) {
       i += 1;
       continue;
     }
 
-    // 1. Headings (H1 to H6)
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
-      const level = Math.min(heading[1].length, 6);
-      const content = heading[2];
-      const headingNode = (() => {
-        switch (level) {
-          case 1:
-            return (
-              <h1 className="text-base font-bold text-zinc-100 border-b border-zinc-800/80 pb-2 mb-2">
-                {parseInlineMarkdown(content)}
-              </h1>
-            );
-          case 2:
-            return (
-              <h2 className="text-sm font-bold text-zinc-100 mt-3 mb-1.5">
-                {parseInlineMarkdown(content)}
-              </h2>
-            );
-          case 3:
-            return (
-              <h3 className="text-xs font-semibold text-sky-300 mt-2.5 mb-1">
-                {parseInlineMarkdown(content)}
-              </h3>
-            );
-          default:
-            return (
-              <h4 className="text-xs font-semibold text-zinc-300 mt-2 mb-1">
-                {parseInlineMarkdown(content)}
-              </h4>
-            );
-        }
-      })();
-      blocks.push(
-        <div key={`block-${i}`} className="my-1">
-          {headingNode}
-        </div>,
-      );
+      const level = heading[1].length;
+      const content = parseInlineMarkdown(heading[2]);
+      blocks.push(level === 1 ? <h1 key={i}>{content}</h1> : level === 2 ? <h2 key={i}>{content}</h2> : <h3 key={i}>{content}</h3>);
       i += 1;
       continue;
     }
 
-    // 2. Code Block (```lang ... ```)
     const codeMatch = line.match(/^```(\w*)/);
     if (codeMatch) {
-      const lang = codeMatch[1] || "";
       const codeLines: string[] = [];
       i += 1;
       while (i < lines.length && !/^```/.test(lines[i].trim())) {
         codeLines.push(lines[i]);
         i += 1;
       }
-      if (i < lines.length) {
-        i += 1;
-      }
-
-      blocks.push(
-        <CodeBlock key={`code-${i}`} code={codeLines.join("\n") || " "} lang={lang} />,
-      );
+      if (i < lines.length) i += 1;
+      blocks.push(<CodeBlock key={`code-${i}`} code={codeLines.join("\n") || " "} lang={codeMatch[1]} />);
       continue;
     }
 
-    // 3. Markdown Tables (| Col 1 | Col 2 |)
     if (line.startsWith("|") && line.endsWith("|")) {
-      const tableRows: string[][] = [];
+      const rows: string[][] = [];
       while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
-        const curLine = lines[i].trim();
-        // Skip separator line (|---|---|)
-        if (!/^[\|\s\-:]+$/.test(curLine)) {
-          const cells = curLine
-            .slice(1, -1)
-            .split("|")
-            .map((c) => c.trim());
-          tableRows.push(cells);
-        }
+        const cur = lines[i].trim();
+        if (!/^[|\s\-:]+$/.test(cur)) rows.push(cur.slice(1, -1).split("|").map((c) => c.trim()));
         i += 1;
       }
-
-      if (tableRows.length > 0) {
-        blocks.push(<TableRenderer key={`table-${i}`} rows={tableRows} />);
-      }
+      blocks.push(<TableRenderer key={`table-${i}`} rows={rows} />);
       continue;
     }
 
-    // 4. HTML Details / Summary Callout Block
     if (/^<details/i.test(line)) {
-      const detailLines: string[] = [];
-      let summaryText = "Details";
+      const inner: string[] = [];
+      let summary = "Details";
       i += 1;
       while (i < lines.length && !/<\/details>/i.test(lines[i].trim())) {
-        const dLine = lines[i].trim();
-        const sumMatch = dLine.match(/<summary>(.*?)<\/summary>/i);
-        if (sumMatch) {
-          summaryText = sumMatch[1];
-        } else {
-          detailLines.push(lines[i]);
-        }
+        const m = lines[i].trim().match(/<summary>(.*?)<\/summary>/i);
+        if (m) summary = m[1];
+        else inner.push(lines[i]);
         i += 1;
       }
       if (i < lines.length) i += 1;
-
       blocks.push(
-        <details
-          key={`details-${i}`}
-          className="my-2.5 p-3 rounded-xl border border-zinc-800 bg-zinc-900/60 text-xs text-zinc-300 cursor-pointer"
-        >
-          <summary className="font-semibold text-sky-400 select-none">{summaryText}</summary>
-          <div className="pt-2 pl-2 text-zinc-300 leading-relaxed">
-            {renderMarkdown(detailLines.join("\n"))}
-          </div>
+        <details key={`details-${i}`} className="my-2.5 rounded-xl border border-line bg-sunken px-3.5 py-2.5">
+          <summary className="font-medium cursor-pointer select-none">{summary}</summary>
+          <div className="pt-2">{renderMarkdown(inner.join("\n"))}</div>
         </details>,
       );
       continue;
     }
 
-    // 5. Unordered List Items (- or * or +)
-    const listItem = line.match(/^\s*[-*+]\s+(.*)$/);
-    if (listItem) {
+    if (/^\s*[-*+]\s+/.test(line)) {
       const items: React.ReactNode[] = [];
       while (i < lines.length) {
-        const current = lines[i].trim();
-        const match = current.match(/^\s*[-*+]\s+(.*)$/);
-        if (!match) break;
+        const m = lines[i].trim().match(/^\s*[-*+]\s+(.*)$/);
+        if (!m) break;
+        const task = m[1].match(/^\[( |x|X)\]\s+(.*)$/);
         items.push(
-          <li key={`list-${i}`} className="flex items-start gap-2.5 my-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 mt-1.5 flex-shrink-0" />
-            <span className="leading-relaxed">{parseInlineMarkdown(match[1])}</span>
+          <li key={i} className="flex items-start gap-2.5 my-1">
+            {task ? (
+              <span className={`mt-[0.35em] w-3.5 h-3.5 rounded border flex-shrink-0 ${task[1] === " " ? "border-line-strong" : "bg-accent border-accent"}`} />
+            ) : (
+              <span className="mt-[0.6em] w-1.5 h-1.5 rounded-full bg-accent flex-shrink-0" />
+            )}
+            <span>{parseInlineMarkdown(task ? task[2] : m[1])}</span>
           </li>,
         );
         i += 1;
       }
-
-      blocks.push(
-        <ul key={`block-${i}`} className="space-y-0.5 text-xs text-zinc-200 my-2 pl-0.5">
-          {items}
-        </ul>,
-      );
+      blocks.push(<ul key={`ul-${i}`} className="my-2">{items}</ul>);
       continue;
     }
 
-    // 6. Ordered List Items (1., 2.)
-    const orderedItem = line.match(/^\s*\d+\.\s+(.*)$/);
-    if (orderedItem) {
+    if (/^\s*\d+\.\s+/.test(line)) {
       const items: React.ReactNode[] = [];
-      let stepNum = 1;
+      let n = 1;
       while (i < lines.length) {
-        const current = lines[i].trim();
-        const match = current.match(/^\s*\d+\.\s+(.*)$/);
-        if (!match) break;
+        const m = lines[i].trim().match(/^\s*\d+\.\s+(.*)$/);
+        if (!m) break;
         items.push(
-          <li key={`list-${i}`} className="flex items-start gap-2.5 my-1.5">
-            <span className="text-[10px] font-mono font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.2 rounded-md flex-shrink-0">
-              {stepNum++}
-            </span>
-            <span className="leading-relaxed">{parseInlineMarkdown(match[1])}</span>
+          <li key={i} className="flex items-start gap-2.5 my-1.5">
+            <span className="font-mono text-xs text-accent mt-[0.3em] w-4 text-right flex-shrink-0">{n++}</span>
+            <span>{parseInlineMarkdown(m[1])}</span>
           </li>,
         );
         i += 1;
       }
-
-      blocks.push(
-        <ol key={`block-${i}`} className="space-y-1 text-xs text-zinc-200 my-2">
-          {items}
-        </ol>,
-      );
+      blocks.push(<ol key={`ol-${i}`} className="my-2">{items}</ol>);
       continue;
     }
 
-    // 7. Blockquote (> quote)
     const quote = line.match(/^>\s?(.*)$/);
     if (quote) {
       blocks.push(
-        <blockquote
-          key={`block-${i}`}
-          className="border-l-2 border-indigo-400 bg-indigo-500/5 px-3.5 py-2 rounded-r-xl text-zinc-300 italic text-xs my-2.5 leading-relaxed"
-        >
+        <blockquote key={i} className="my-3 border-l-2 border-accent pl-4 font-serif italic text-muted text-[1.05em]">
           {parseInlineMarkdown(quote[1])}
         </blockquote>,
       );
@@ -375,282 +240,184 @@ function renderMarkdown(markdown: string): React.ReactNode[] {
       continue;
     }
 
-    // 8. Paragraph text
-    const paragraphLines: string[] = [];
+    const para: string[] = [];
     while (i < lines.length) {
-      const current = lines[i].trim();
-      if (!current) break;
-      if (
-        /^(#{1,6})\s+/.test(current) ||
-        /^```/.test(current) ||
-        /^\|.*\|$/.test(current) ||
-        /^<details/i.test(current) ||
-        /^\s*[-*+]\s+/.test(current) ||
-        /^\s*\d+\.\s+/.test(current) ||
-        /^>\s?/.test(current)
-      ) {
-        break;
-      }
-      paragraphLines.push(current);
+      const cur = lines[i].trim();
+      if (!cur || BLOCK_START.test(cur)) break;
+      para.push(cur);
       i += 1;
     }
-
-    blocks.push(
-      <p key={`block-${i}`} className="text-xs leading-relaxed text-zinc-300 my-1">
-        {parseInlineMarkdown(paragraphLines.join(" "))}
-      </p>,
-    );
+    blocks.push(<p key={`p-${i}`}>{parseInlineMarkdown(para.join(" "))}</p>);
   }
 
   return blocks;
 }
 
-export const CanvasPanel: React.FC<CanvasPanelProps> = ({
-  entries,
-  onClear,
-  onUpdateEntry,
-  onDeleteEntry,
-}) => {
-  const canvasScrollRef = React.useRef<HTMLDivElement | null>(null);
+export const CanvasPanel: React.FC<CanvasPanelProps> = ({ entries, onClear, onUpdateEntry, onDeleteEntry }) => {
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [allCopied, setAllCopied] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editBuffer, setEditBuffer] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
 
   React.useEffect(() => {
-    if (canvasScrollRef.current) {
-      canvasScrollRef.current.scrollTop = canvasScrollRef.current.scrollHeight;
-    }
-  }, [entries]);
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [entries.length]);
 
-  const copyEntryMarkdown = (id: string, text: string) => {
+  const fullMarkdown = () => entries.map((e) => e.markdown).join("\n\n---\n\n");
+
+  const copy = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+    setTimeout(() => setCopiedId(null), 1800);
   };
 
-  const copyAllCanvas = () => {
-    const fullMarkdown = entries.map((e) => e.markdown).join("\n\n---\n\n");
-    navigator.clipboard.writeText(fullMarkdown);
-    setAllCopied(true);
-    setTimeout(() => setAllCopied(false), 2000);
-  };
-
-  const downloadMarkdown = () => {
-    const fullMarkdown = entries.map((e) => e.markdown).join("\n\n---\n\n");
-    const blob = new Blob([fullMarkdown], { type: "text/markdown" });
+  const download = () => {
+    const blob = new Blob([fullMarkdown()], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `canvas_notes_${Date.now()}.md`;
+    a.download = `notes_${new Date().toISOString().slice(0, 10)}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const startEditing = (entry: CanvasEntry) => {
-    setEditingId(entry.id);
-    setEditBuffer(entry.markdown);
-  };
-
-  const saveEdit = (id: string) => {
-    if (onUpdateEntry && editBuffer.trim()) {
-      onUpdateEntry(id, editBuffer.trim());
-    }
-    setEditingId(null);
-  };
-
   return (
-    <div className="surface-card rounded-3xl p-5 flex flex-col min-h-0 h-full min-w-0 overflow-hidden w-full relative">
-      {/* Top Header Bar */}
-      <div className="flex items-center justify-between pb-3.5 border-b border-white/[0.08] flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500/20 to-indigo-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 shadow-sm">
-            <FileText className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-100">
-                Interactive Canvas
-              </h2>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700/60 font-mono">
-                {entries.length} {entries.length === 1 ? "card" : "cards"}
-              </span>
-            </div>
-            <p className="text-[11px] text-zinc-400">
-              Live documentation, code snippets, tables & visual artifacts
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {entries.length > 0 && (
-            <>
-              <button
-                type="button"
-                onClick={copyAllCanvas}
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-xl surface-pill text-zinc-300 hover:text-white transition cursor-pointer"
-                title="Copy full canvas markdown"
-              >
-                {allCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span className="hidden sm:inline">{allCopied ? "Copied" : "Copy"}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={downloadMarkdown}
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-xl surface-pill text-zinc-300 hover:text-white transition cursor-pointer"
-                title="Export as Markdown file"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Export</span>
-              </button>
-            </>
-          )}
-
-          <button
-            type="button"
-            onClick={onClear}
-            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-xl border border-zinc-800 hover:border-rose-500/40 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-            disabled={entries.length === 0}
-            title="Clear canvas notes"
-          >
-            <Eraser className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Clear</span>
+    <div className="h-full flex flex-col min-h-0">
+      {entries.length > 0 && (
+        <div className="flex items-center justify-end gap-1 px-4 py-2 border-b border-line flex-shrink-0">
+          <button className="btn h-8 text-xs" onClick={() => copy("__all", fullMarkdown())}>
+            {copiedId === "__all" ? <Check className="w-3.5 h-3.5 text-live" /> : <Copy className="w-3.5 h-3.5" />}
+            Copy all
           </button>
+          <button className="btn h-8 text-xs" onClick={download}>
+            <Download className="w-3.5 h-3.5" /> Export
+          </button>
+          {confirmClear ? (
+            <span className="flex items-center gap-1 text-xs">
+              <button
+                className="btn btn-danger h-8 text-xs"
+                onClick={() => {
+                  onClear?.();
+                  setConfirmClear(false);
+                }}
+              >
+                Clear all notes
+              </button>
+              <button className="btn h-8 text-xs" onClick={() => setConfirmClear(false)}>
+                Keep
+              </button>
+            </span>
+          ) : (
+            <button className="btn h-8 text-xs" onClick={() => setConfirmClear(true)}>
+              <Eraser className="w-3.5 h-3.5" /> Clear
+            </button>
+          )}
         </div>
-      </div>
+      )}
 
-      {/* Main Canvas Document Sheet */}
-      <div
-        ref={canvasScrollRef}
-        className="flex-1 min-h-0 overflow-y-auto space-y-4 pt-4 pr-1.5 scroll-smooth"
-      >
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
         {entries.length === 0 ? (
-          <div className="h-full min-h-[340px] flex flex-col items-center justify-center text-center p-8 space-y-5">
-            <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-sky-400 shadow-xl relative">
-              <Sparkles className="w-7 h-7" />
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
-            </div>
-
-            <div className="max-w-md space-y-1.5">
-              <h3 className="text-sm font-semibold text-zinc-100">Live AI Canvas Active</h3>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                During your voice call, the AI agent can read, write, edit, or generate tables and code snippets on this canvas in real time.
-              </p>
-            </div>
-
-            <div className="pt-2 flex flex-col gap-2 w-full max-w-sm text-left">
-              <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider text-center">
-                Try asking out loud:
-              </span>
-              <div className="p-3 rounded-xl bg-zinc-900/70 border border-zinc-800/90 text-xs text-zinc-300 flex items-center gap-2.5 hover:border-zinc-700 transition">
-                <TableIcon className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
-                <span>"Create a comparative markdown table on the canvas."</span>
+          <div className="h-full flex items-center justify-center p-8">
+            <div className="max-w-sm text-center rise">
+              <div className="w-11 h-11 mx-auto rounded-xl bg-accent-soft text-accent flex items-center justify-center mb-4">
+                <NotebookPen className="w-5 h-5" />
               </div>
-              <div className="p-3 rounded-xl bg-zinc-900/70 border border-zinc-800/90 text-xs text-zinc-300 flex items-center gap-2.5 hover:border-zinc-700 transition">
-                <Wand2 className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
-                <span>"What is currently on my canvas? Update section 2."</span>
+              <h3 className="font-serif text-xl font-medium">Notes appear here</h3>
+              <p className="text-sm text-muted mt-2 leading-relaxed">
+                Ask the agent to summarise a section, make a table, or jot down what you just learned. It writes here while you talk.
+              </p>
+              <div className="mt-5 space-y-2 text-sm text-left">
+                {["“Summarise this chapter as bullet points.”", "“Make a table comparing the two ideas.”", "“Search for the latest on this and note the sources.”"].map((s) => (
+                  <div key={s} className="rounded-xl border border-line px-3.5 py-2.5 text-muted font-serif italic">
+                    {s}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         ) : (
-          entries.map((entry, index) => {
-            const isJustCopied = copiedId === entry.id;
-            const isEditingThis = editingId === entry.id;
-
-            return (
-              <article
-                key={entry.id || `entry-${index}`}
-                className="group relative rounded-2xl border border-zinc-800/90 bg-[#121217]/90 hover:bg-[#14141a] p-5 text-xs space-y-3 transition-all shadow-md hover:border-zinc-700/80 animate-in fade-in slide-in-from-bottom-2 duration-200"
-              >
-                <div className="flex items-center justify-between gap-2 border-b border-zinc-800/70 pb-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold font-mono bg-sky-500/10 text-sky-300 border border-sky-500/20">
-                      {entry.toolName || "canvas_note"}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    {entry.createdAt && (
-                      <span className="text-[10px] text-zinc-500 font-mono flex items-center gap-1 mr-1">
-                        <Clock className="w-3 h-3" />
-                        {new Date(entry.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })}
-                      </span>
-                    )}
-
-                    {!isEditingThis ? (
+          <div className="max-w-[72ch] mx-auto px-6 py-6 space-y-4">
+            {entries.map((entry) => {
+              const editing = editingId === entry.id;
+              return (
+                <article key={entry.id} className="group relative panel rounded-2xl px-5 py-4 rise">
+                  <div className="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    {!editing && (
                       <>
                         <button
-                          onClick={() => startEditing(entry)}
-                          className="p-1 rounded-lg text-zinc-400 hover:text-sky-300 hover:bg-zinc-800 transition opacity-0 group-hover:opacity-100 cursor-pointer"
-                          title="Edit markdown in-place"
+                          className="btn btn-icon h-7 w-7"
+                          onClick={() => {
+                            setEditingId(entry.id);
+                            setEditBuffer(entry.markdown);
+                          }}
+                          title="Edit"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
-
-                        <button
-                          onClick={() => copyEntryMarkdown(entry.id, entry.markdown)}
-                          className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition opacity-0 group-hover:opacity-100 cursor-pointer"
-                          title="Copy block markdown"
-                        >
-                          {isJustCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <button className="btn btn-icon h-7 w-7" onClick={() => copy(entry.id, entry.markdown)} title="Copy">
+                          {copiedId === entry.id ? <Check className="w-3.5 h-3.5 text-live" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
-
                         {onDeleteEntry && (
-                          <button
-                            onClick={() => onDeleteEntry(entry.id)}
-                            className="p-1 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition opacity-0 group-hover:opacity-100 cursor-pointer"
-                            title="Delete this section"
-                          >
+                          <button className="btn btn-icon h-7 w-7 hover:!text-danger" onClick={() => onDeleteEntry(entry.id)} title="Delete">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </>
-                    ) : (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => saveEdit(entry.id)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-[10px] font-semibold border border-emerald-500/30 transition cursor-pointer"
-                        >
-                          <Save className="w-3 h-3" />
-                          <span>Save</span>
-                        </button>
-                        <button
-                          onClick={() => setEditingId(null)}
-                          className="p-1 rounded-md text-zinc-400 hover:text-white transition cursor-pointer"
-                          title="Cancel editing"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
                     )}
                   </div>
-                </div>
 
-                {isEditingThis ? (
-                  <div className="space-y-2 pt-1">
-                    <textarea
-                      value={editBuffer}
-                      onChange={(e) => setEditBuffer(e.target.value)}
-                      rows={6}
-                      className="w-full p-3 bg-zinc-950/90 border border-zinc-700 rounded-xl text-xs text-zinc-100 font-mono focus:outline-none focus:border-sky-500 transition resize-y leading-relaxed"
-                    />
-                    <p className="text-[10px] text-zinc-500">
-                      Supports Markdown formatting, GFM tables, and code blocks.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="canvas-markdown text-zinc-200 leading-relaxed overflow-x-auto">
-                    {renderMarkdown(entry.markdown)}
-                  </div>
-                )}
-              </article>
-            );
-          })
+                  {editing ? (
+                    <div className="space-y-2">
+                      <textarea
+                        autoFocus
+                        value={editBuffer}
+                        onChange={(e) => setEditBuffer(e.target.value)}
+                        rows={Math.min(18, Math.max(5, editBuffer.split("\n").length + 1))}
+                        className="field font-mono text-[0.82rem] leading-relaxed resize-y"
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setEditingId(null);
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                            if (editBuffer.trim()) onUpdateEntry?.(entry.id, editBuffer.trim());
+                            setEditingId(null);
+                          }
+                        }}
+                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-faint">
+                          <span className="kbd">Ctrl Enter</span> to save
+                        </span>
+                        <div className="flex gap-1">
+                          <button className="btn h-8 text-xs" onClick={() => setEditingId(null)}>
+                            <X className="w-3.5 h-3.5" /> Cancel
+                          </button>
+                          <button
+                            className="btn btn-primary h-8 text-xs"
+                            onClick={() => {
+                              if (editBuffer.trim()) onUpdateEntry?.(entry.id, editBuffer.trim());
+                              setEditingId(null);
+                            }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="notes overflow-x-auto"
+                      onDoubleClick={() => {
+                        setEditingId(entry.id);
+                        setEditBuffer(entry.markdown);
+                      }}
+                    >
+                      {renderMarkdown(entry.markdown)}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

@@ -14,7 +14,7 @@ if (!agentId) {
 const updatePayload = {
   conversation_config: {
     conversation: {
-      max_duration_seconds: 1200, // 20 minutes
+      max_duration_seconds: 7200, // 2 hours
     },
     turn: {
       turn_timeout: 10.0,
@@ -24,7 +24,7 @@ const updatePayload = {
 };
 
 async function patchAgent() {
-  console.log(`Updating max_duration_seconds to 1200s (20 mins) for Agent ${agentId}...`);
+  console.log(`Updating max_duration_seconds to 7200s (2 hours) for Agent ${agentId}...`);
   const res = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
     method: "PATCH",
     headers: {
@@ -42,7 +42,7 @@ async function patchAgent() {
 
   const data = await res.json();
   console.log("SUCCESS! Updated Agent config on ElevenLabs:");
-  console.log("max_duration_seconds is now 1200 seconds (20 minutes).");
+  console.log("max_duration_seconds is now 7200 seconds (2 hours).");
 }
 
 patchAgent();

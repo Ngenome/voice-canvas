@@ -1,18 +1,8 @@
-import React, { useState, useEffect } from "react";
-import {
-  History,
-  MessageSquare,
-  Trash2,
-  Clock,
-  ChevronRight,
-  RefreshCw,
-  X,
-  User,
-  Bot,
-  PlayCircle,
-  FileText,
-  Search,
-} from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { X, Search, Trash2, ArrowLeft, BookOpen, MessagesSquare, NotebookPen, Clock, Loader2 } from "lucide-react";
+import type { CanvasEntry } from "./CanvasPanel";
+import { parseShelf, shelfGroups, versionOfDoc, type Shelf } from "../lib/documents";
+
 export interface SessionItem {
   id: string;
   title: string;
@@ -20,7 +10,10 @@ export interface SessionItem {
   status: string;
   duration_seconds: number;
   canvas_json?: string;
+  document_title?: string | null;
+  document_count?: number;
   created_at: string;
+  updated_at?: string;
   message_count?: number;
 }
 
@@ -35,12 +28,16 @@ interface SessionHistoryProps {
   isOpen: boolean;
   onClose: () => void;
   currentSessionId?: string;
-  onResumeSession?: (
-    session: SessionItem,
-    transcripts: TranscriptItem[],
-    canvasEntries: CanvasEntry[],
-  ) => void;
+  isLive?: boolean;
+  onOpenSession?: (session: SessionItem, transcripts: TranscriptItem[], canvasEntries: CanvasEntry[], shelf: Shelf) => void;
 }
+
+type Detail = {
+  session: SessionItem;
+  transcripts: TranscriptItem[];
+  canvasEntries: CanvasEntry[];
+  shelf: Shelf;
+};
 
 function parseCanvasEntries(raw: unknown): CanvasEntry[] {
   if (!raw) return [];
@@ -56,20 +53,34 @@ function parseCanvasEntries(raw: unknown): CanvasEntry[] {
   return [];
 }
 
-export const SessionHistory: React.FC<SessionHistoryProps> = ({
-  isOpen,
-  onClose,
-  currentSessionId,
-  onResumeSession,
-}) => {
+/** SQLite CURRENT_TIMESTAMP is UTC without a zone marker. */
+function parseDate(value: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(value) ? value : `${value.replace(" ", "T")}Z`);
+}
+
+function groupLabel(date: Date): string {
+  const today = new Date();
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(today) - startOf(date)) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return "This week";
+  if (days < 30) return "This month";
+  return date.toLocaleDateString([], { month: "long", year: "numeric" });
+}
+
+function formatDuration(secs: number) {
+  if (!secs) return null;
+  const m = Math.floor(secs / 60);
+  return m > 0 ? `${m} min` : `${secs}s`;
+}
+
+export const SessionHistory: React.FC<SessionHistoryProps> = ({ isOpen, onClose, currentSessionId, isLive, onOpenSession }) => {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedSessionDetail, setSelectedSessionDetail] = useState<{
-    session: SessionItem;
-    transcripts: TranscriptItem[];
-    canvasEntries: CanvasEntry[];
-  } | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [query, setQuery] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const fetchSessions = async () => {
     setIsLoading(true);
@@ -88,281 +99,294 @@ export const SessionHistory: React.FC<SessionHistoryProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      fetchSessions();
+      void fetchSessions();
+      setDetail(null);
+      setConfirmDelete(null);
     }
   }, [isOpen]);
 
-  const viewSessionDetail = async (id: string) => {
-    try {
-      const res = await fetch(`/api/sessions/${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.session) {
-          const canvas = parseCanvasEntries(data.session.canvas_json);
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
 
-          setSelectedSessionDetail({
-            session: data.session,
-            transcripts: data.session.transcripts || [],
-            canvasEntries: canvas,
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Error fetching session details:", err);
+  const loadDetail = async (id: string): Promise<Detail | null> => {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.session) return null;
+      return {
+        session: data.session,
+        transcripts: data.session.transcripts || [],
+        canvasEntries: parseCanvasEntries(data.session.canvas_json),
+        shelf: parseShelf(data.session.document_json),
+      };
+    } catch {
+      return null;
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("Are you sure you want to delete this session?")) return;
-
-    try {
-      const res = await fetch(`/api/sessions/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setSessions((prev) => prev.filter((s) => s.id !== id));
-        if (selectedSessionDetail?.session.id === id) {
-          setSelectedSessionDetail(null);
-        }
-      }
-    } catch (err) {
-      console.error("Error deleting session:", err);
-    }
-  };
-
-  const handleResume = (
-    session: SessionItem,
-    transcripts: TranscriptItem[],
-    canvasEntries: CanvasEntry[] = [],
-    e?: React.MouseEvent,
-  ) => {
-    e?.stopPropagation();
-    onResumeSession?.(session, transcripts, canvasEntries);
+  const open = (d: Detail) => {
+    onOpenSession?.(d.session, d.transcripts, d.canvasEntries, d.shelf);
     onClose();
   };
 
-  const filteredSessions = sessions.filter(
-    (s) =>
-      s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.id.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-
-  const formatDuration = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}m ${s}s`;
+  const remove = async (id: string) => {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
+        if (detail?.session.id === id) setDetail(null);
+      }
+    } catch (err) {
+      console.error("Error deleting session:", err);
+    } finally {
+      setConfirmDelete(null);
+    }
   };
+
+  const groups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = sessions.filter(
+      (s) => !q || s.title.toLowerCase().includes(q) || (s.document_title || "").toLowerCase().includes(q),
+    );
+    const map = new Map<string, SessionItem[]>();
+    for (const s of filtered) {
+      const label = groupLabel(parseDate(s.created_at));
+      if (!map.has(label)) map.set(label, []);
+      map.get(label)!.push(s);
+    }
+    return [...map.entries()];
+  }, [sessions, query]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0e0e12]/95 backdrop-blur-2xl border-l border-white/[0.08] shadow-2xl flex flex-col transition-all duration-300 animate-in slide-in-from-right">
-      {/* Header */}
-      <div className="p-4 border-b border-zinc-800 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2 text-zinc-200 font-semibold text-xs uppercase tracking-wider">
-          <History className="w-4 h-4 text-sky-400" />
-          <span>Session History</span>
-          <span className="text-zinc-500 font-mono">({sessions.length})</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={fetchSessions}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition cursor-pointer"
-            title="Refresh"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-          </button>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition cursor-pointer"
-          >
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40 fade-in" onClick={onClose} />
+      <div className="relative w-full max-w-2xl h-full bg-surface border-l border-line shadow-2xl flex flex-col slide-in">
+        <header className="flex items-center gap-3 px-6 h-16 border-b border-line flex-shrink-0">
+          {detail ? (
+            <button className="btn btn-icon -ml-2" onClick={() => setDetail(null)} title="Back to library">
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          ) : null}
+          <h2 className="font-serif text-xl font-medium flex-1 truncate">{detail ? detail.session.title : "Library"}</h2>
+          <button className="btn btn-icon" onClick={onClose} title="Close (Esc)">
             <X className="w-4 h-4" />
           </button>
-        </div>
-      </div>
+        </header>
 
-      {selectedSessionDetail ? (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="p-4 bg-zinc-900/60 border-b border-zinc-800 flex items-center justify-between flex-shrink-0 gap-3">
-            <div className="flex-1 pr-2 min-w-0">
-              <button
-                onClick={() => setSelectedSessionDetail(null)}
-                className="text-xs text-sky-400 hover:underline mb-1 inline-block cursor-pointer font-medium"
-              >
-                &larr; Back to all sessions
-              </button>
-              <h3 className="font-semibold text-zinc-100 text-sm truncate">{selectedSessionDetail.session.title}</h3>
-              <p className="text-xs text-zinc-400 flex items-center gap-2 mt-0.5 font-mono">
-                <span>{new Date(selectedSessionDetail.session.created_at).toLocaleDateString()}</span>
-                <span>• {formatDuration(selectedSessionDetail.session.duration_seconds)}</span>
-              </p>
+        {detail ? (
+          <DetailView detail={detail} isLive={!!isLive} onOpen={() => open(detail)} />
+        ) : (
+          <>
+            <div className="px-6 py-4 flex-shrink-0">
+              <div className="relative">
+                <Search className="w-4 h-4 text-faint absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  autoFocus
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search your library..."
+                  className="field pl-9"
+                />
+              </div>
             </div>
 
-            <button
-              onClick={() =>
-                handleResume(
-                  selectedSessionDetail.session,
-                  selectedSessionDetail.transcripts,
-                  selectedSessionDetail.canvasEntries,
-                )
-              }
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 font-semibold text-xs transition cursor-pointer flex-shrink-0 shadow-sm"
-              title="Resume conversation"
-            >
-              <PlayCircle className="w-3.5 h-3.5 fill-zinc-950" />
-              <span>Resume</span>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {selectedSessionDetail.canvasEntries.length > 0 && (
-              <div className="p-3.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-400">
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Saved Canvas Notes ({selectedSessionDetail.canvasEntries.length})</span>
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-8">
+              {isLoading && sessions.length === 0 ? (
+                <div className="py-20 flex justify-center text-faint">
+                  <Loader2 className="w-5 h-5 animate-spin" />
                 </div>
-                <div className="space-y-1.5">
-                  {selectedSessionDetail.canvasEntries.map((entry, idx) => (
-                    <div key={idx} className="p-2.5 rounded-xl bg-[#09090b] border border-zinc-800/80 text-xs text-zinc-300 font-mono truncate">
-                      {entry.markdown.substring(0, 90)}...
-                    </div>
-                  ))}
+              ) : groups.length === 0 ? (
+                <div className="py-20 text-center">
+                  <p className="font-serif text-lg">{query ? "Nothing matches that" : "Your library is empty"}</p>
+                  <p className="text-sm text-faint mt-1">{query ? "Try a different word." : "Documents you read and conversations you have are saved here."}</p>
                 </div>
-              </div>
-            )}
-
-            <div className="space-y-2.5">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-2">
-                Transcript ({selectedSessionDetail.transcripts.length})
-              </h4>
-              {selectedSessionDetail.transcripts.length === 0 ? (
-                <p className="text-xs text-zinc-500 text-center py-6">No messages recorded.</p>
               ) : (
-                selectedSessionDetail.transcripts.map((t, idx) => (
-                  <div
-                    key={t.id || `tr-${idx}`}
-                    className={`flex gap-2 text-xs ${
-                      t.role === "user" ? "flex-row-reverse" : "flex-row"
-                    }`}
-                  >
-                    <div
-                      className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 text-[10px] ${
-                        t.role === "user"
-                          ? "bg-indigo-500/20 text-indigo-300"
-                          : "bg-zinc-800 text-zinc-400"
-                      }`}
-                    >
-                      {t.role === "user" ? <User className="w-3 h-3" /> : <Bot className="w-3 h-3" />}
+                groups.map(([label, items]) => (
+                  <section key={label} className="mb-6">
+                    <h3 className="eyebrow mb-2">{label}</h3>
+                    <div className="space-y-1">
+                      {items.map((s) => {
+                        const notes = parseCanvasEntries(s.canvas_json).length;
+                        const isCurrent = s.id === currentSessionId;
+                        const date = parseDate(s.created_at);
+                        return (
+                          <div
+                            key={s.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={async () => {
+                              const d = await loadDetail(s.id);
+                              if (d) setDetail(d);
+                            }}
+                            onKeyDown={async (e) => {
+                              if (e.key === "Enter") {
+                                const d = await loadDetail(s.id);
+                                if (d) setDetail(d);
+                              }
+                            }}
+                            className={`group flex items-center gap-4 rounded-xl px-3 py-3 -mx-3 cursor-pointer transition-colors hover:bg-raised ${isCurrent ? "bg-raised" : ""}`}
+                          >
+                            <div
+                              className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                s.document_title ? "bg-accent-soft text-accent" : "bg-sunken text-muted"
+                              }`}
+                            >
+                              {s.document_title ? <BookOpen className="w-4 h-4" /> : <MessagesSquare className="w-4 h-4" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium truncate">
+                                {s.title}
+                                {isCurrent && <span className="ml-2 text-xs text-accent font-normal">open now</span>}
+                              </div>
+                              <div className="text-xs text-faint mt-0.5 flex items-center gap-3 flex-wrap">
+                                <span>{date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+                                {formatDuration(s.duration_seconds) && (
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {formatDuration(s.duration_seconds)}
+                                  </span>
+                                )}
+                                {!!s.message_count && <span>{s.message_count} {s.message_count === 1 ? "message" : "messages"}</span>}
+                                {notes > 0 && <span>{notes} {notes === 1 ? "note" : "notes"}</span>}
+                                {(s.document_count ?? 0) > 1 && <span>{s.document_count} documents</span>}
+                              </div>
+                            </div>
+                            {confirmDelete === s.id ? (
+                              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                <button className="btn btn-danger h-8 text-xs" onClick={() => void remove(s.id)}>
+                                  Delete
+                                </button>
+                                <button className="btn h-8 text-xs" onClick={() => setConfirmDelete(null)}>
+                                  Keep
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                className="btn btn-icon h-8 w-8 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:!text-danger"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDelete(s.id);
+                                }}
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div
-                      className={`max-w-[80%] rounded-xl px-3 py-1.5 ${
-                        t.role === "user"
-                          ? "bg-indigo-600/20 border border-indigo-500/30 text-zinc-200"
-                          : "bg-zinc-900 border border-zinc-800 text-zinc-300"
-                      }`}
-                    >
-                      <p className="leading-relaxed">{t.message}</p>
-                    </div>
-                  </div>
+                  </section>
                 ))
               )}
             </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="p-3 border-b border-zinc-800 flex-shrink-0">
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search sessions..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-zinc-900/80 border border-zinc-800 rounded-xl text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
-              />
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {isLoading && sessions.length === 0 ? (
-              <div className="text-center py-12 text-zinc-500 text-xs">Loading sessions...</div>
-            ) : filteredSessions.length === 0 ? (
-              <div className="text-center py-12 text-zinc-500 text-xs">
-                No past sessions recorded yet.
-              </div>
-            ) : (
-              filteredSessions.map((session) => {
-                const canvasCount = parseCanvasEntries(session.canvas_json).length;
-
-                return (
-                  <div
-                    key={session.id}
-                    onClick={() => viewSessionDetail(session.id)}
-                    className={`group p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
-                      currentSessionId === session.id
-                        ? "bg-zinc-900/90 border-zinc-700 shadow-md"
-                        : "bg-zinc-900/40 border-zinc-800/80 hover:bg-zinc-900/80 hover:border-zinc-700"
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1 pr-2">
-                      <h4 className="text-xs font-semibold text-zinc-200 truncate group-hover:text-sky-400 transition-colors">
-                        {session.title}
-                      </h4>
-                      <div className="flex items-center gap-3 text-[11px] text-zinc-400 mt-1">
-                        <span className="flex items-center gap-1 font-mono">
-                          <Clock className="w-3 h-3 text-zinc-500" />
-                          {formatDuration(session.duration_seconds)}
-                        </span>
-                        <span className="flex items-center gap-1 font-mono">
-                          <MessageSquare className="w-3 h-3 text-zinc-500" />
-                          {session.message_count || 0}
-                        </span>
-                        {canvasCount > 0 && (
-                          <span className="flex items-center gap-1 text-sky-400 font-mono text-[10px]">
-                            <FileText className="w-3 h-3" />
-                            {canvasCount} notes
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] text-zinc-500 mt-1 font-mono">
-                        {new Date(session.created_at).toLocaleDateString()} {new Date(session.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          const res = await fetch(`/api/sessions/${session.id}`);
-                          if (res.ok) {
-                            const data = await res.json();
-                            const canvas = parseCanvasEntries(data.session?.canvas_json);
-                            handleResume(session, data.session?.transcripts || [], canvas);
-                          }
-                        }}
-                        className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition cursor-pointer"
-                        title="Resume call"
-                      >
-                        <PlayCircle className="w-3.5 h-3.5 text-sky-400" />
-                      </button>
-
-                      <button
-                        onClick={(e) => handleDelete(session.id, e)}
-                        className="p-2 rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition opacity-0 group-hover:opacity-100 cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-
-                      <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition" />
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 };
+
+function DetailView({ detail, isLive, onOpen }: { detail: Detail; isLive: boolean; onOpen: () => void }) {
+  const { session, transcripts, canvasEntries, shelf } = detail;
+  const groups = shelfGroups(shelf.documents);
+  const document = shelf.documents.find((d) => d.id === shelf.activeId) ?? shelf.documents[0] ?? null;
+  const date = parseDate(session.created_at);
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-6">
+        <p className="text-sm text-faint">
+          {date.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} at {date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+          {formatDuration(session.duration_seconds) ? ` · ${formatDuration(session.duration_seconds)}` : ""}
+        </p>
+
+        {groups.length > 0 && (
+          <div className="space-y-2">
+            {groups.map((versions) => {
+              const d = versions[versions.length - 1];
+              const progress = d.paragraphs.length > 0 ? Math.round(((d.position + 1) / d.paragraphs.length) * 100) : 0;
+              const page = d.paragraphs[Math.max(d.position, 0)]?.page;
+              return (
+                <div key={d.groupId ?? d.id} className="panel rounded-2xl p-4 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-lg bg-accent-soft text-accent flex items-center justify-center flex-shrink-0">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-serif text-lg font-medium truncate">
+                      {d.title}
+                      {versions.length > 1 && <span className="ml-2 text-xs font-sans text-accent">v{versionOfDoc(d)} of {versions.length}</span>}
+                    </div>
+                    <div className="mt-2 h-1 rounded-full bg-sunken overflow-hidden">
+                      <div className="h-full bg-accent" style={{ width: `${progress}%` }} />
+                    </div>
+                    <div className="text-xs text-faint mt-1.5">
+                      {d.position < 0 ? "Not started" : `${progress}% through${page ? ` · page ${page}` : ""}`}
+                      {d.highlights?.length ? ` · ${d.highlights.length} highlight${d.highlights.length === 1 ? "" : "s"}` : ""}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {canvasEntries.length > 0 && (
+          <section>
+            <h3 className="eyebrow mb-2 flex items-center gap-1.5">
+              <NotebookPen className="w-3.5 h-3.5" /> Notes
+            </h3>
+            <div className="space-y-2">
+              {canvasEntries.map((e) => (
+                <div key={e.id} className="rounded-xl border border-line px-4 py-3 text-sm text-muted line-clamp-4 whitespace-pre-wrap">
+                  {e.markdown}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section>
+          <h3 className="eyebrow mb-3 flex items-center gap-1.5">
+            <MessagesSquare className="w-3.5 h-3.5" /> Conversation
+          </h3>
+          {transcripts.length === 0 ? (
+            <p className="text-sm text-faint">No conversation recorded.</p>
+          ) : (
+            <div className="space-y-4">
+              {transcripts.map((t, i) => (
+                <div key={t.id || i} className={`flex flex-col ${t.role === "user" ? "items-end" : "items-start"}`}>
+                  <span className="eyebrow mb-1">{t.role === "user" ? "You" : "Agent"}</span>
+                  <p
+                    className={`max-w-[90%] leading-relaxed text-[0.93rem] whitespace-pre-wrap ${
+                      t.role === "user" ? "bg-raised border border-line rounded-2xl rounded-tr-md px-3.5 py-2" : ""
+                    }`}
+                  >
+                    {t.message}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <footer className="px-6 py-4 border-t border-line flex items-center justify-between gap-3 flex-shrink-0">
+        <span className="text-xs text-faint">{isLive ? "End your current call to switch sessions." : ""}</span>
+        <button className="btn btn-primary" onClick={onOpen} disabled={isLive}>
+          {document ? <BookOpen className="w-4 h-4" /> : <MessagesSquare className="w-4 h-4" />}
+          {document ? (document.position >= 0 ? "Continue reading" : "Open") : "Continue conversation"}
+        </button>
+      </footer>
+    </div>
+  );
+}

@@ -1,8 +1,10 @@
+import { webTools, readingTools, timeTools, WEB_SEARCH_PROMPT, READING_PROMPT, TIME_PROMPT } from "./agentTools";
+
 const API = "https://api.elevenlabs.io/v1/convai/agents/create";
-const apiKey = process.env.ELEVEN_LABS_API_KEY;
+const apiKey = process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY;
 
 if (!apiKey) {
-  console.error("ELEVEN_LABS_API_KEY is missing from .env");
+  console.error("ELEVENLABS_API_KEY is missing from .env");
   process.exit(1);
 }
 
@@ -12,20 +14,6 @@ const canvasTools = [
     name: "append_to_canvas",
     description:
       "Append a markdown block to the on-screen canvas (do not replace existing content).",
-    parameters: {
-      type: "object",
-      properties: {
-        markdown: { type: "string", description: "Markdown content to append." },
-        content: { type: "string", description: "Fallback content if markdown is absent." },
-        text: { type: "string", description: "Fallback plain text to append." },
-      },
-    },
-  },
-  {
-    type: "client",
-    name: "write_to_canvas",
-    description:
-      "Write a single markdown block to canvas (append behavior is same as append_to_canvas).",
     parameters: {
       type: "object",
       properties: {
@@ -61,27 +49,39 @@ Keep a running visible notes canvas for this call.
 - Tool usage should append content; do not overwrite existing canvas entries.
 - Prefer these tools:
   - append_to_canvas
-  - write_to_canvas
   - append_markdown
 - Send markdown in the \"markdown\" field.
 - Keep entries short and structured (headings/lists/code) when useful.
 
 # Tone
-Friendly, clear, and brief.`;
+Friendly, clear, and brief.
+
+${WEB_SEARCH_PROMPT}
+
+${READING_PROMPT}
+
+${TIME_PROMPT}`;
 
 const config = {
   name: "Lean Voice Agent",
+  platform_settings: {
+    overrides: {
+        conversation_config_override: { agent: { first_message: true, prompt: { llm: true } }, tts: { voice_id: true, speed: true } },
+      },
+  },
   conversation_config: {
     agent: {
       first_message: "Agent is running. Lets chat.",
       language: "en",
       prompt: {
         prompt,
-        llm: "claude-sonnet-4-5",
+        llm: "claude-sonnet-5-5",
+        reasoning_effort: "low", // a little thinking; keeps replies quick for voice
         temperature: 0.7,
-        tools: canvasTools,
+        tools: [...canvasTools, ...webTools, ...readingTools, ...timeTools],
       },
     },
+    conversation: { max_duration_seconds: 7200 },
   },
 };
 
